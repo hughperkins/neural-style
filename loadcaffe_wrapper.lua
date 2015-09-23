@@ -9,7 +9,6 @@ local C = loadcaffe.C
   make it possible to load VGG-19 without any CUDA dependency.
 --]]
 local function loadcaffe_load(prototxt_name, binary_name, backend)
-  print("In loadcaffe_load")
   local backend = backend or 'nn'
   local handle = ffi.new('void*[1]')
 
@@ -81,13 +80,11 @@ local function loadcaffe_load(prototxt_name, binary_name, backend)
       model = dofile(lua_name)
     end
   end
-  print("Finished proto to lua")
 
   -- goes over the list, copying weights from caffe blobs to torch tensor
   local net = nn.Sequential()
   local list_modules = model
   for i,item in ipairs(list_modules) do
-    --print("In iteration %d", i)
     item[2].name = item[1]
     if item[2].weight then
       local w = torch.FloatTensor()
@@ -103,14 +100,12 @@ local function loadcaffe_load(prototxt_name, binary_name, backend)
   end
   C.destroyBinary(handle)
 
-  print("Finished iterations", backend)
   if backend == 'cudnn' or backend == 'ccn2' then
     net:cuda()
   elseif backend == 'clnn' then
-    -- net:cl()
+    net:cl()
   end
 
-  print("Finished network setup")
   return net
 end
 
