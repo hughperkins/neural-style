@@ -15,6 +15,7 @@ local function loadcaffe_load(prototxt_name, binary_name, backend)
   -- loads caffe model in memory and keeps handle to it in ffi
   local old_val = handle[1]
   C.loadBinary(handle, prototxt_name, binary_name)
+  print('1')
   if old_val == handle[1] then return end
 
   -- transforms caffe prototxt to torch lua file model description and 
@@ -48,27 +49,42 @@ local function loadcaffe_load(prototxt_name, binary_name, backend)
     model = dofile(lua_name_cpu)
   else
     if backend == "clnn" then
+      print('2')
       C.convertProtoToLua(handle, lua_name, 'nn')
+      print('3')
+      print('prototxt_name', prototxt_name)
       local lua_name_opencl = prototxt_name..'.opencl.lua'
       local fin = assert(io.open(lua_name), 'r')
       local fout = assert(io.open(lua_name_opencl, 'w'))
       local line_num = 1
       while true do
         local line = fin:read('*line')
+        print('line', line)
         if line == nil then break end
         -- Fix for using nin_imagenet_conv.caffemodel
         if line:find("inn") then
           line = line:gsub("inn", "nn")
         end
+        if line:find("SpatialAveragePooling") then
+          line = line:gsub("%}%)", ":ceil()})")
+        end
+        local skip = false
+        if line:find("SoftMax") then
+          print('softmax')
+          skip = true
+        end
         --[[
         -- Hack to replace CUDA libraries with openCL libs. 
         -- My machine only has an ATI Firepro V3900 so can't run CUDA libs.
         --]]--
-        if line_num > 2 and line_num ~=4 then
-          fout:write(line, '\n')
-        elseif line_num == 1 then
-          fout:write("require 'nn'", '\n')
-          fout:write("require 'clnn'", '\n')
+        if not skip then
+          print('noskip')
+          if line_num > 2 and line_num ~=4 then
+            fout:write(line, '\n')
+          elseif line_num == 1 then
+            fout:write("require 'nn'", '\n')
+            fout:write("require 'clnn'", '\n')
+          end
         end
         line_num = line_num + 1
       end
@@ -86,6 +102,7 @@ local function loadcaffe_load(prototxt_name, binary_name, backend)
   local list_modules = model
   for i,item in ipairs(list_modules) do
     item[2].name = item[1]
+--    print('item name', i, item[1], item)
     if item[2].weight then
       local w = torch.FloatTensor()
       local bias = torch.FloatTensor()
