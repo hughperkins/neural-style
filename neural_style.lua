@@ -13,7 +13,7 @@ function nn.SpatialConvolutionMM:accGradParameters(self)
 --    print('myaccgrad')
 end
 
-function nn.Sequential:updateOutput(input)
+function nn.Sequential:updateOutputx(input)
    print('update output')
    local currentOutput = input
    for i=1,#self.modules do
@@ -51,7 +51,7 @@ function nn.Sequential:updateOutput(input)
    return currentOutput
 end
 
-function nn.Sequential:backward(input, gradOutput, scale)
+function nn.Sequential:backwardx(input, gradOutput, scale)
    print('backward')
    scale = scale or 1
    local currentGradOutput = gradOutput
@@ -123,6 +123,7 @@ cmd:option('-tv_weight', 1e-3)
 cmd:option('-num_iterations', 1000)
 cmd:option('-normalize_gradients', false)
 cmd:option('-init', 'random', 'random|image')
+cmd:option('-init_image_file', '')
 cmd:option('-optimizer', 'lbfgs', 'lbfgs|adam')
 cmd:option('-learning_rate', 1e1)
 
@@ -142,6 +143,12 @@ cmd:option('-content_layers', 'relu4_2', 'layers for content')
 cmd:option('-style_layers', 'relu1_1,relu2_1,relu3_1,relu4_1,relu5_1', 'layers for style')
 
 local function main(params)
+--  params.content_layers = ''
+--  params.style_layers = ''
+  params.optimizer = 'adam'
+  params.learning_rate = 0
+  params.init_image_file = 'cu_lbfgs.png'
+
   if params.gpu >= 0 then
     require 'cutorch'
     require 'cunn'
@@ -301,7 +308,11 @@ local function main(params)
   if params.init == 'random' then
     img = torch.randn(content_image:size()):float():mul(0.001)
   elseif params.init == 'image' then
-    img = content_image_caffe:clone():float()
+    if params.init_image_file == '' then
+      img = content_image_caffe:clone():float()
+    else
+      img = image.load(params.init_image_file, 3)
+    end
   else
     error('Invalid init type')
   end
