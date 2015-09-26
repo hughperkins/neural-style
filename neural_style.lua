@@ -9,6 +9,111 @@ local loadcaffe_wrap = require 'loadcaffe_wrapper'
 
 local cmd = torch.CmdLine()
 
+function nn.SpatialConvolutionMM:accGradParameters(self)
+--    print('myaccgrad')
+end
+
+function nn.Sequential:updateOutputx(input)
+   print('update output')
+   local currentOutput = input
+   for i=1,#self.modules do
+      local module = self.modules[i]
+--      print('module', module)
+      if torch.type(module) == 'nn.SpatialConvolutionMM' then
+         local flweight = module.weight
+         module.weight = module.weight:cuda()
+         flweight:resize(0)
+         flweight:storage():resize(0)
+      end
+      currentOutput = module:updateOutput(currentOutput)
+      if torch.type(module) == 'nn.SpatialConvolutionMM' then
+         local cuweight = module.weight
+         module.weight = module.weight:float()
+         cuweight:resize(0)
+         cuweight:storage():resize(0)
+      end
+--      print('output nelement', currentOutput:nElement())
+--      if currentOutput.numel ~= nil then
+--         print('output nelement', currentOutput:numel() * 4 / 1024 / 1024)
+--      end
+--        if module.weight ~= nil then
+--           print('weight:numel()', module.weight:numel() * 4 / 1024 / 1024)
+--        end
+--        if module.weight ~= nil then
+--           print('gradWeight:numel()', module.gradWeight:numel() * 4 / 1024 / 1024)
+--        end
+--      if torch.type(module.output) ~= 'table' then
+--   --      print('self.modules[', i, '].output:size()', self.modules[i]:)
+----         print('module.output:size()', module.output:size())
+--         module.output = module.output:clone()
+--      else
+--         for i=1,#module.output do
+--            module.output[i] = module.output[i]:clone()
+--         end
+--      end
+--      collectgarbage()
+   end
+   self.output = currentOutput
+   return currentOutput
+end
+
+function nn.Sequential:backwardx(input, gradOutput, scale)
+   print('backward')
+   scale = scale or 1
+   local currentGradOutput = gradOutput
+   local currentModule = self.modules[#self.modules]
+   for i=#self.modules-1,1,-1 do
+      local previousModule = self.modules[i]
+      if torch.type(currentModule) == 'nn.SpatialConvolutionMM' then
+         currentModule.weight = currentModule.weight:cuda()
+         currentModule.gradWeight = currentModule.gradWeight:cuda()
+         collectgarbage()
+      end
+      currentGradOutput = currentModule:backward(previousModule.output, currentGradOutput, scale)
+      if torch.type(currentModule) == 'nn.SpatialConvolutionMM' then
+         currentModule.weight = currentModule.weight:float()
+         currentModule.gradWeight = currentModule.gradWeight:float()
+         collectgarbage()
+      end
+      --currentModule.gradInput = currentGradOutput
+      --currentModule.gradInput = currentModule.gradInput:clone()
+      currentModule = previousModule
+   end
+   currentGradOutput = currentModule:backward(input, currentGradOutput, scale)
+   self.gradInput = currentGradOutput
+   return currentGradOutput
+end
+
+function nn.Sequential:updateGradInputx(input, gradOutput)
+   print('my updategradinput')
+   local currentGradOutput = gradOutput
+   local currentModule = self.modules[#self.modules]
+   for i=#self.modules-1,1,-1 do
+      local previousModule = self.modules[i]
+      currentGradOutput = currentModule:updateGradInput(previousModule.output, currentGradOutput)
+      currentModule = previousModule
+   end
+   currentGradOutput = currentModule:updateGradInput(input, currentGradOutput)
+   self.gradInput = currentGradOutput
+   return currentGradOutput
+end
+
+function nn.Sequential:accGradParametersx(input, gradOutput, scale)
+   print('accGradparameters')
+   scale = scale or 1
+
+   local currentGradOutput = gradOutput
+   local currentModule = self.modules[#self.modules]
+   for i=#self.modules-1,1,-1 do
+      local previousModule = self.modules[i]
+      currentModule:accGradParameters(previousModule.output, currentGradOutput, scale)
+      currentGradOutput = currentModule.gradInput
+      currentModule = previousModule
+   end
+
+   currentModule:accGradParameters(input, currentGradOutput, scale)
+end
+
 -- Basic options
 cmd:option('-style_image', 'examples/inputs/seated-nude.jpg',
            'Style target image')
@@ -182,7 +287,21 @@ local function main(params)
 
   -- We don't need the base CNN anymore, so clean it up to save memory.
   cnn = nil
+  for i=1,#net.modules do
+    local module = net.modules[i]
+    print('module', module)
+    if torch.type(module) == 'nn.SpatialConvolutionMM' then
+        module.gradWeight = nil
+        module.gradBias = nil
+--       module.gradWeight = module.gradWeight:float()
+--       module.weight = module.weight:float()
+--       print('gradWeight:size()', module.gradWeight:size())
+--       module.gradWeight = nil
+    end
+  end
   collectgarbage()
+  print('net', net)
+  torch.manualSeed(123)
   
   -- Initialize the image
   local img = nil
