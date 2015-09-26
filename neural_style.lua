@@ -13,24 +13,19 @@ function nn.SpatialConvolutionMM:accGradParameters(self)
 --    print('myaccgrad')
 end
 
-function nn.Sequential:updateOutputx(input)
+function nn.Sequential:updateOutput(input)
    print('update output')
    local currentOutput = input
    for i=1,#self.modules do
       local module = self.modules[i]
 --      print('module', module)
       if torch.type(module) == 'nn.SpatialConvolutionMM' then
-         local flweight = module.weight
          module.weight = module.weight:cuda()
-         flweight:resize(0)
-         flweight:storage():resize(0)
       end
       currentOutput = module:updateOutput(currentOutput)
       if torch.type(module) == 'nn.SpatialConvolutionMM' then
-         local cuweight = module.weight
          module.weight = module.weight:float()
-         cuweight:resize(0)
-         cuweight:storage():resize(0)
+         collectgarbage()
       end
 --      print('output nelement', currentOutput:nElement())
 --      if currentOutput.numel ~= nil then
@@ -51,13 +46,12 @@ function nn.Sequential:updateOutputx(input)
 --            module.output[i] = module.output[i]:clone()
 --         end
 --      end
---      collectgarbage()
    end
    self.output = currentOutput
    return currentOutput
 end
 
-function nn.Sequential:backwardx(input, gradOutput, scale)
+function nn.Sequential:backward(input, gradOutput, scale)
    print('backward')
    scale = scale or 1
    local currentGradOutput = gradOutput
@@ -66,13 +60,12 @@ function nn.Sequential:backwardx(input, gradOutput, scale)
       local previousModule = self.modules[i]
       if torch.type(currentModule) == 'nn.SpatialConvolutionMM' then
          currentModule.weight = currentModule.weight:cuda()
-         currentModule.gradWeight = currentModule.gradWeight:cuda()
-         collectgarbage()
+--         currentModule.gradWeight = currentModule.gradWeight:cuda()
       end
       currentGradOutput = currentModule:backward(previousModule.output, currentGradOutput, scale)
       if torch.type(currentModule) == 'nn.SpatialConvolutionMM' then
          currentModule.weight = currentModule.weight:float()
-         currentModule.gradWeight = currentModule.gradWeight:float()
+--         currentModule.gradWeight = currentModule.gradWeight:float()
          collectgarbage()
       end
       --currentModule.gradInput = currentGradOutput
