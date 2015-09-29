@@ -43,6 +43,8 @@ cmd:option('-seed', -1)
 
 cmd:option('-content_layers', 'relu4_2', 'layers for content')
 cmd:option('-style_layers', 'relu1_1,relu2_1,relu3_1,relu4_1,relu5_1', 'layers for style')
+--cmd:option('-sparsify_weights', 0.1)
+cmd:option('-weight_threshold', 0.003)
 
 function nn.SpatialConvolutionMM:accGradParameters()
   -- nop.  not needed by our net
@@ -191,9 +193,16 @@ local function main(params)
   for i=1,#net.modules do
     local module = net.modules[i]
     if torch.type(module) == 'nn.SpatialConvolutionMM' then
-        -- remote these, not used, but uses gpu memory
-        module.gradWeight = nil
-        module.gradBias = nil
+      -- remote these, not used, but uses gpu memory
+      module.gradWeight = nil
+      module.gradBias = nil
+
+      local sel = module.weight:clone():abs():lt(params.weight_threshold)
+--      print('sel', sel)
+      module.weight:maskedFill(sel, 0);
+      
+      sparsity = 1 - module.weight:ne(0):sum() / module.weight:numel()
+      print('sparsity', sparsity)
     end
   end
   collectgarbage()
