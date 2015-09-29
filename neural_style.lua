@@ -44,7 +44,7 @@ cmd:option('-seed', -1)
 cmd:option('-content_layers', 'relu4_2', 'layers for content')
 cmd:option('-style_layers', 'relu1_1,relu2_1,relu3_1,relu4_1,relu5_1', 'layers for style')
 --cmd:option('-sparsify_weights', 0.1)
-cmd:option('-weight_threshold', 0.003)
+cmd:option('-weight_threshold', 0.008)
 cmd:option('-initial_image', '', 'initial image')
 
 function nn.SpatialConvolutionMM:accGradParameters()
@@ -75,11 +75,99 @@ local function main(params)
   end
   
   local cnn = loadcaffe_wrap.load(params.proto_file, params.model_file, params.backend):float()
+  print('cnn', cnn)
   if params.gpu >= 0 then
     cnn:cuda()
   end
   
   local content_image_caffe = load_image(params.content_image, params.image_size)
+
+if true then
+  local i = #cnn.modules
+  local in_loss_layer = false
+  local content_layers = params.content_layers:split(",")
+  local style_layers = params.style_layers:split(",")
+  local loss_layers = {}
+  for _, content_layer in ipairs(content_layers) do
+    print('content_layer', content_layer)
+    loss_layers[content_layer] = true
+  end
+  for _, style_layer in ipairs(style_layers) do
+    print('style_layer', style_layer)
+    loss_layers[style_layer] = true
+  end
+  while not in_loss_layer and i > 0 do
+    local module = cnn.modules[i]
+    print('module', module, 'module.name', module.name)
+    if loss_layers[module.name] then
+      in_loss_layer = true
+    end
+    if not in_loss_layer then
+      cnn:remove(i)
+    end
+    i = i - 1
+  end
+end
+--  for i=1,#cnn.modules do
+--  end
+
+  for i=1,#cnn.modules do
+    local module = cnn.modules[i]
+    if torch.type(module) == 'nn.SpatialConvolutionMM' then
+      -- remote these, not used, but uses gpu memory
+      module.gradWeight = nil
+      module.gradBias = nil
+
+if false then
+      local sel = module.weight:clone():abs():lt(params.weight_threshold)
+--      print('sel', sel)
+      module.weight:maskedFill(sel, 0);
+      
+      sparsity = 1 - module.weight:ne(0):sum() / module.weight:numel()
+      print('sparsity', sparsity)
+elseif false then
+      local outplanes = module.nOutputPlane
+      local inplanes = module.nInputPlane
+      for o=1,outplanes do
+        local roll = torch.Tensor(1):uniform()[1]
+        local zeroplane = torch.floor(roll*inplanes) + 1
+        local weight_view = module.weight:view(torch.LongStorage({outplanes, inplanes, module.kH, module.kW}))
+        weight_view[o][zeroplane]:zero()
+      end
+--  local roll = torch.Tensor(1):uniform()[1]
+--  local p = 0.5
+--  if roll < p then
+--     
+--  end
+elseif true then
+  print('module.name', module.name)
+  if module.name == 'conv5_4' then
+    local threshold = 0.1 * module.kH * module.kW * 100
+    local outplanes = module.nOutputPlane
+    local inplanes = module.nInputPlane
+    local weight_view = module.weight:view(torch.LongStorage({outplanes, inplanes, module.kH, module.kW}))
+    local planar_sums = weight_view:clone():abs():sum(3):sum(4)
+    print('planar_sums:size()', planar_sums:size())
+    local num_planes = planar_sums:numel()
+    local num_zerod = 0
+    for o=1,outplanes do
+      for i=1,inplanes do
+        if planar_sums[o][i][1][1] <= threshold then
+          num_zerod = num_zerod + 1
+          weight_view[o][i]:zero()
+        end
+      end
+    end
+    print('sparsity: ', num_zerod / num_planes)
+    module.weight:zero()
+    module.bias:zero()
+  end
+else 
+--   module.weight:uniform(0.001):add(-0.0005)
+   module.weight:normal(0, 0.03)
+end
+    end
+  end
   
   local style_size = math.ceil(params.style_scale * params.image_size)
   local style_image_list = params.style_image:split(',')
@@ -198,21 +286,6 @@ local function main(params)
 
   -- We don't need the base CNN anymore, so clean it up to save memory.
   cnn = nil
-  for i=1,#net.modules do
-    local module = net.modules[i]
-    if torch.type(module) == 'nn.SpatialConvolutionMM' then
-      -- remote these, not used, but uses gpu memory
-      module.gradWeight = nil
-      module.gradBias = nil
-
-      local sel = module.weight:clone():abs():lt(params.weight_threshold)
---      print('sel', sel)
-      module.weight:maskedFill(sel, 0);
-      
-      sparsity = 1 - module.weight:ne(0):sum() / module.weight:numel()
-      print('sparsity', sparsity)
-    end
-  end
   collectgarbage()
   
   -- Initialize the image
@@ -220,6 +293,8 @@ local function main(params)
     torch.manualSeed(params.seed)
   end
   local img = nil
+  print('params.initial_image', params.initial_image)
+  print('is nil?', params.initial_image == nil)
   if params.initial_image ~= '' then
     img = load_image(params.initial_image, params.image_size)
   else
