@@ -96,17 +96,17 @@ if true then
     print('style_layer', style_layer)
     loss_layers[style_layer] = true
   end
-  while not in_loss_layer and i > 0 do
-    local module = cnn.modules[i]
-    print('module', module, 'module.name', module.name)
-    if loss_layers[module.name] then
-      in_loss_layer = true
-    end
-    if not in_loss_layer then
-      cnn:remove(i)
-    end
-    i = i - 1
-  end
+--  while not in_loss_layer and i > 0 do
+--    local module = cnn.modules[i]
+--    print('module', module, 'module.name', module.name)
+--    if loss_layers[module.name] then
+--      in_loss_layer = true
+--    end
+--    if not in_loss_layer then
+--      cnn:remove(i)
+--    end
+--    i = i - 1
+--  end
 end
 --  for i=1,#cnn.modules do
 --  end
@@ -141,8 +141,8 @@ elseif false then
 --  end
 elseif true then
   print('module.name', module.name)
-  if module.name == 'conv5_4' then
-    local threshold = 0.1 * module.kH * module.kW * 100
+  if module.name == 'conv4_2' or module.name == 'conv4_3' or module.name == 'conv4_4' or module.name == 'conv5_1' then
+    local threshold = 0.02 * module.kH * module.kW
     local outplanes = module.nOutputPlane
     local inplanes = module.nInputPlane
     local weight_view = module.weight:view(torch.LongStorage({outplanes, inplanes, module.kH, module.kW}))
@@ -159,8 +159,17 @@ elseif true then
       end
     end
     print('sparsity: ', num_zerod / num_planes)
-    module.weight:zero()
-    module.bias:zero()
+--    for o=1,outplanes do
+--      for i=1,inplanes do
+--        if planar_sums[o][i][1][1] > threshold then
+----          num_zerod = num_zerod + 1
+--          weight_view[o][i]:cmul(1/sparsity)
+--        end
+--      end
+--    end
+
+--    module.weight:zero()
+--    module.bias:zero()
   end
 else 
 --   module.weight:uniform(0.001):add(-0.0005)
